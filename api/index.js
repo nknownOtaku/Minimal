@@ -2,138 +2,89 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const axios = require("axios");
 
-// Initialize bot without polling (webhook mode)
+// Initialize bot
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
 
-const BASE_API = "https://anime-api-seven-wheat.vercel.app/api";
+// Hardcoded API URL
+const API_URL = "https://anime-api-seven-wheat.vercel.app/api";
+const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
+const BANNER_API = "https://banner-gene.onrender.com/api/create";
 
-// =============================
-// Helper Functions
-// =============================
-
-async function getLatestAnimeSlug() {
-    try {
-        const res = await axios.get(`${BASE_API}/`);
-        if (!res.data.latestEpisode || res.data.latestEpisode.length === 0) {
-            throw new Error("No latest episode found");
-        }
-        const latest = res.data.latestEpisode[0];
-        if (!latest.id) throw new Error("No slug/id found in latest episode");
-        return latest.id;
-    } catch (err) {
-        console.error("❌ getLatestAnimeSlug error:", err.message);
-        throw err;
-    }
+// =======================
+// Fetch the latest anime
+// =======================
+async function fetchLatestAnime() {
+  try {
+    const res = await axios.get(API_URL);
+    const spotlights = res.data?.results?.spotlights || [];
+    return spotlights[0]; // first latest
+  } catch (err) {
+    console.error("❌ API fetch error:", err.message);
+    return null;
+  }
 }
 
-async function getLatestEpisode(slug) {
-    try {
-        const res = await axios.get(`${BASE_API}/episodes/${slug}`);
-        const episodes = res.data.results?.episodes;
-        if (!episodes || episodes.length === 0) {
-            throw new Error(`No episodes found for ${slug}`);
-        }
-        return episodes[episodes.length - 1]; // last episode
-    } catch (err) {
-        console.error("❌ getLatestEpisode error:", err.message);
-        throw err;
-    }
-}
-
-async function getAvailableTypes(epId) {
-    try {
-        const res = await axios.get(`${BASE_API}/servers/${epId}`);
-        const servers = res.data.results;
-        if (!servers || servers.length === 0) return [];
-        return [...new Set(servers.map(s => s.type))];
-    } catch (err) {
-        console.error("❌ getAvailableTypes error:", err.message);
-        return [];
-    }
-}
-
-// =============================
-// Handle /latest
-// =============================
-
-async function handleLatest(chatId) {
-    try {
-        await bot.sendMessage(chatId, "🔎 Fetching latest release...");
-
-        const slug = await getLatestAnimeSlug();
-        const episode = await getLatestEpisode(slug);
-        const types = await getAvailableTypes(episode.id);
-
-        if (types.length === 0) {
-            return bot.sendMessage(chatId, "❌ No servers available for latest episode.");
-        }
-
-        const cleanTitle = slug
-            .replace(/-\d+$/, "")
-            .replace(/-/g, " ")
-            .replace(/\b\w/g, l => l.toUpperCase());
-
-        const seasonMatch = slug.match(/season-(\d+)/i);
-        const season = seasonMatch ? seasonMatch[1] : "01";
-
-        const bannerUrl =
-            `https://banner-gene.onrender.com/api/create?title=${encodeURIComponent(cleanTitle)}`;
-
-        for (const type of types) {
-            const audioText =
-                type === "dub"
-                    ? "English Dub"
-                    : "Japanese [Eng Sub]";
-
-            const caption = `
-<b><blockquote>⬡ ${cleanTitle}</blockquote>
+// =======================
+// Build caption
+// =======================
+function buildCaption(anime, type) {
+  const epNo = anime.tvInfo?.episodeInfo?.[type] || "N/A";
+  const audio = type === "dub" ? "English Dub" : "Japanese [Eng Sub]";
+  return `<b><blockquote>⬡ ${anime.title}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
-‣ Season : ${season.padStart(2, "0")}
-‣ Episode : ${String(episode.episode_no).padStart(2, "0")}
-‣ Quality : Multi
-‣ Audio : ${audioText}
+‣ Japanese : ${anime.japanese_title || "-"}
+‣ Episode : ${epNo}
+‣ Quality : ${anime.tvInfo?.quality || "HD"}
+‣ Audio : ${audio}
 ╰━━━━━━━━━━━━━━━━━━━━━
-<blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote></b>
-`;
-
-            await bot.sendPhoto(chatId, bannerUrl, {
-                caption,
-                parse_mode: "HTML",
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: "🎬 Watch Now",
-                                web_app: {
-                                    url: `${process.env.WEBAPP_URL}/?stream=${episode.id}&type=${type}`
-                                }
-                            }
-                        ]
-                    ]
-                }
-            });
-        }
-
-    } catch (err) {
-        console.error("❌ handleLatest error:", err.message);
-        bot.sendMessage(chatId, "❌ Failed to fetch latest release.");
-    }
+<blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote></b>`;
 }
 
-// =============================
-// Serverless Handler
-// =============================
+// =======================
+// Send latest to user
+// =======================
+async function sendLatest(chatId) {
+  const anime = await fetchLatestAnime();
+  if (!anime) return bot.sendMessage(chatId, "❌ Failed to fetch latest anime.");
 
+  const types = [];
+  if (anime.tvInfo?.episodeInfo?.sub) types.push("sub");
+  if (anime.tvInfo?.episodeInfo?.dub) types.push("dub");
+
+  for (const type of types) {
+    const caption = buildCaption(anime, type);
+    const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
+
+    await bot.sendPhoto(chatId, bannerUrl, {
+      caption,
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "🎬 Watch Now",
+              web_app: {
+                url: `${WEBAPP_URL}/?stream=${anime.id}&type=${type}`
+              }
+            }
+          ]
+        ]
+      }
+    });
+  }
+}
+
+// =======================
+// Serverless handler
+// =======================
 module.exports = async (req, res) => {
-    if (req.method !== "POST") return res.status(405).send("Method not allowed");
+  if (req.method !== "POST") return res.status(405).send("Method not allowed");
 
-    const update = req.body;
+  const update = req.body;
 
-    if (update.message?.text === "/latest") {
-        await handleLatest(update.message.chat.id);
-    }
+  if (update.message?.text === "/latest") {
+    await sendLatest(update.message.chat.id);
+  }
 
-    return res.status(200).json({ ok: true });
+  return res.status(200).json({ ok: true });
 };
-
-console.log("🤖 Serverless Latest Bot ready!");
