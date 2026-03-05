@@ -16,7 +16,6 @@ const BANNER_API = "https://banner-gene.onrender.com/api/create";
 async function fetchLatestEpisodes() {
   try {
     const res = await axios.get(API_URL);
-    // ✅ Fixed: Access results.latestEpisode
     return res.data?.results?.latestEpisode || [];
   } catch (err) {
     console.error("❌ API fetch error:", err.message);
@@ -28,14 +27,12 @@ async function fetchLatestEpisodes() {
 // Build caption
 // =======================
 function buildCaption(anime) {
-  // ✅ Fixed: Use tvInfo.sub directly (no episodeInfo nesting)
   const episodeNum = anime.tvInfo?.sub || anime.tvInfo?.dub || "-";
   const quality = anime.tvInfo?.quality || "HD";
   const showType = anime.tvInfo?.showType || "TV/ONA";
   
   return `<b><blockquote>⬡ ${anime.title}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
-‣ Japanese : ${anime.japanese_title || "-"}
 ‣ Episode : ${episodeNum}
 ‣ Quality : ${quality}
 ‣ Type : ${showType}
@@ -44,15 +41,13 @@ function buildCaption(anime) {
 }
 
 // =======================
-// Send latest to user (with adult content skip logic)
+// Send latest to user
 // =======================
 async function sendLatest(chatId) {
   const episodes = await fetchLatestEpisodes();
   if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
 
-  // ✅ Fixed: Skip adult content and find the first valid episode
   const anime = episodes.find(ep => !ep.adultContent);
-  
   if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
 
   const caption = buildCaption(anime);
@@ -66,14 +61,42 @@ async function sendLatest(chatId) {
         [
           {
             text: "🎬 Watch Now",
-            web_app: {
-              url: `${WEBAPP_URL}/?stream=${anime.id}`
-            }
+            web_app: { url: `${WEBAPP_URL}/?stream=${anime.id}` }
           }
         ]
       ]
     }
   });
+}
+
+// =======================
+// Fetch today's schedule
+// =======================
+async function fetchTodaySchedule() {
+  try {
+    const res = await axios.get(API_URL);
+    return res.data?.results?.today?.schedule || [];
+  } catch (err) {
+    console.error("❌ Schedule fetch error:", err.message);
+    return [];
+  }
+}
+
+// =======================
+// Send schedule (styled)
+// =======================
+async function sendSchedule(chatId) {
+  const schedule = await fetchTodaySchedule();
+  
+  if (!schedule.length) {
+    return bot.sendMessage(chatId, "❌ No episodes scheduled for today.");
+  }
+
+  const message = schedule
+    .map(item => `<b><blockquote>⬡ ${item.title}</blockquote></b>\n‣ Time: ${item.time}\n‣ Episode: ${item.episode || "-"}`)
+    .join("\n\n");
+
+  await bot.sendMessage(chatId, message, { parse_mode: "HTML" });
 }
 
 // =======================
@@ -83,9 +106,15 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).send("Method not allowed");
 
   const update = req.body;
+  const text = update.message?.text;
+  const chatId = update.message?.chat.id;
 
-  if (update.message?.text === "/latest") {
-    await sendLatest(update.message.chat.id);
+  if (!chatId) return res.status(400).send("No chat ID");
+
+  if (text === "/latest") {
+    await sendLatest(chatId);
+  } else if (text === "/schedule") {
+    await sendSchedule(chatId);
   }
 
   return res.status(200).json({ ok: true });
