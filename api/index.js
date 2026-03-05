@@ -2,16 +2,21 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const axios = require("axios");
 
-// Initialize bot
+// =======================
+// Initialize Bot
+// =======================
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
 
-// API URLs
+// =======================
+// Config
+// =======================
 const API_URL = process.env.API_URL || "https://anime-api-seven-wheat.vercel.app/api";
 const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
 const BANNER_API = "https://banner-gene.onrender.com/api/create";
+const SCHEDULE_IMAGE = "https://i.ibb.co/JW58ghkb/x.jpg";
 
 // =======================
-// Fetch the latest episodes
+// Fetch latest episodes
 // =======================
 async function fetchLatestEpisodes() {
   try {
@@ -24,7 +29,7 @@ async function fetchLatestEpisodes() {
 }
 
 // =======================
-// Build caption
+// Build caption for latest
 // =======================
 function buildCaption(anime) {
   const episodeNum = anime.tvInfo?.sub || anime.tvInfo?.dub || "-";
@@ -41,12 +46,13 @@ function buildCaption(anime) {
 }
 
 // =======================
-// Send latest to user
+// Send latest episode
 // =======================
 async function sendLatest(chatId) {
   const episodes = await fetchLatestEpisodes();
   if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
 
+  // Pick the first non-adult episode
   const anime = episodes.find(ep => !ep.adultContent);
   if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
 
@@ -83,20 +89,30 @@ async function fetchTodaySchedule() {
 }
 
 // =======================
-// Send schedule (styled)
+// Build schedule caption
+// =======================
+function buildScheduleCaption(schedule) {
+  if (!schedule.length) return "❌ No episodes scheduled for today.";
+
+  return schedule
+    .map(item => {
+      const ep = item.episode_no ? `(Ep. ${item.episode_no})` : "(New)";
+      return `<b><blockquote>⬡ ${item.title} ${ep}</blockquote></b>\n‣ Time: ${item.time}`;
+    })
+    .join("\n\n"); // separate each item with a blank line
+}
+
+// =======================
+// Send schedule
 // =======================
 async function sendSchedule(chatId) {
   const schedule = await fetchTodaySchedule();
-  
-  if (!schedule.length) {
-    return bot.sendMessage(chatId, "❌ No episodes scheduled for today.");
-  }
+  const caption = buildScheduleCaption(schedule);
 
-  const message = schedule
-    .map(item => `<b><blockquote>⬡ ${item.title}</blockquote></b>\n‣ Time: ${item.time}\n‣ Episode: ${item.episode || "-"}`)
-    .join("\n\n");
-
-  await bot.sendMessage(chatId, message, { parse_mode: "HTML" });
+  await bot.sendPhoto(chatId, SCHEDULE_IMAGE, {
+    caption,
+    parse_mode: "HTML"
+  });
 }
 
 // =======================
@@ -106,15 +122,13 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).send("Method not allowed");
 
   const update = req.body;
-  const text = update.message?.text;
-  const chatId = update.message?.chat.id;
 
-  if (!chatId) return res.status(400).send("No chat ID");
+  if (update.message?.text === "/latest") {
+    await sendLatest(update.message.chat.id);
+  }
 
-  if (text === "/latest") {
-    await sendLatest(chatId);
-  } else if (text === "/schedule") {
-    await sendSchedule(chatId);
+  if (update.message?.text === "/schedule") {
+    await sendSchedule(update.message.chat.id);
   }
 
   return res.status(200).json({ ok: true });
