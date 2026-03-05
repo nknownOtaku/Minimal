@@ -29,6 +29,32 @@ async function fetchLatestEpisodes() {
 }
 
 // =======================
+// Fetch episodes list for an anime
+// =======================
+async function fetchEpisodesList(animeId) {
+  try {
+    const res = await axios.get(`${API_URL}/episodes/${animeId}`);
+    return res.data?.results?.episodes || [];
+  } catch (err) {
+    console.error(`❌ Episodes fetch error for ${animeId}:`, err.message);
+    return [];
+  }
+}
+
+// =======================
+// Get latest episode ID (with ?ep=xxx)
+// =======================
+function getLatestEpisodeId(episodes) {
+  if (!episodes.length) return null;
+  
+  // Find episode with highest episode_no  const latest = episodes.reduce((max, ep) => 
+    (ep.episode_no > max.episode_no) ? ep : max
+  );
+  
+  return latest.id; // e.g., "anime-id?ep=167848"
+}
+
+// =======================
 // Build caption for latest
 // =======================
 function buildCaption(anime) {
@@ -56,18 +82,26 @@ async function sendLatest(chatId) {
   const anime = episodes.find(ep => !ep.adultContent);
   if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
 
+  // ✅ Fetch episode list and get latest episode ID
+  const episodeList = await fetchEpisodesList(anime.id);
+  const latestEpId = getLatestEpisodeId(episodeList);
+  
+  // Fallback to anime.id if episode fetch fails
+  const streamId = latestEpId || anime.id;
+
   const caption = buildCaption(anime);
   const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
 
   await bot.sendPhoto(chatId, bannerUrl, {
     caption,
     parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [
+    reply_markup: {      inline_keyboard: [
         [
           {
             text: "🎬 Watch Now",
-            web_app: { url: `${WEBAPP_URL}/?stream=${anime.id}` }
+            web_app: { 
+              url: `${WEBAPP_URL}/?stream=${encodeURIComponent(streamId)}` 
+            }
           }
         ]
       ]
@@ -110,8 +144,7 @@ async function sendSchedule(chatId) {
   const caption = buildScheduleCaption(schedule);
 
   await bot.sendPhoto(chatId, SCHEDULE_IMAGE, {
-    caption,
-    parse_mode: "HTML"
+    caption,    parse_mode: "HTML"
   });
 }
 
