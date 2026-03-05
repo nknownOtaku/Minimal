@@ -16,7 +16,8 @@ const BANNER_API = "https://banner-gene.onrender.com/api/create";
 async function fetchLatestEpisodes() {
   try {
     const res = await axios.get(API_URL);
-    return res.data?.latestEpisode || [];
+    // ✅ Fixed: Access results.latestEpisode
+    return res.data?.results?.latestEpisode || [];
   } catch (err) {
     console.error("❌ API fetch error:", err.message);
     return [];
@@ -27,28 +28,32 @@ async function fetchLatestEpisodes() {
 // Build caption
 // =======================
 function buildCaption(anime) {
+  // ✅ Fixed: Use tvInfo.sub directly (no episodeInfo nesting)
+  const episodeNum = anime.tvInfo?.sub || anime.tvInfo?.dub || "-";
+  const quality = anime.tvInfo?.quality || "HD";
+  const showType = anime.tvInfo?.showType || "TV/ONA";
+  
   return `<b><blockquote>⬡ ${anime.title}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
 ‣ Japanese : ${anime.japanese_title || "-"}
-‣ Episode : ${anime.tvInfo?.sub || "-"}
-‣ Quality : ${anime.tvInfo?.quality || "HD"}
-‣ Type : ${anime.tvInfo?.showType || "TV/ONA"}
+‣ Episode : ${episodeNum}
+‣ Quality : ${quality}
+‣ Type : ${showType}
 ╰━━━━━━━━━━━━━━━━━━━━━
 <blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote></b>`;
 }
 
 // =======================
-// Send latest to user (first episode only)
+// Send latest to user (with adult content skip logic)
 // =======================
 async function sendLatest(chatId) {
   const episodes = await fetchLatestEpisodes();
   if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
 
-  // Pick only the first episode
-  const anime = episodes[0];
-
-  // Skip adult content
-  if (anime.adultContent) return bot.sendMessage(chatId, "❌ Latest episode is adult content.");
+  // ✅ Fixed: Skip adult content and find the first valid episode
+  const anime = episodes.find(ep => !ep.adultContent);
+  
+  if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
 
   const caption = buildCaption(anime);
   const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
