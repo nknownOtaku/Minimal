@@ -14,6 +14,7 @@ const API_URL = process.env.API_URL || "https://anime-api-seven-wheat.vercel.app
 const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
 const BANNER_API = "https://banner-gene.onrender.com/api/create";
 const SCHEDULE_IMAGE = "https://i.ibb.co/JW58ghkb/x.jpg";
+const ADMIN_IDS = process.env.ADMIN_IDS?.split(",").map(id => parseInt(id)) || [];
 
 // =======================
 // Fetch latest episodes
@@ -29,7 +30,7 @@ async function fetchLatestEpisodes() {
 }
 
 // =======================
-// Build caption with audio type
+// Build caption with audio type + 18+ badge
 // =======================
 function buildCaption(anime, audioType = "sub") {
   const episodeNum = audioType === "sub" 
@@ -41,8 +42,11 @@ function buildCaption(anime, audioType = "sub") {
     ? "Japanese [Eng Sub]" 
     : "English Dub";
   
-  return `<b><blockquote>⬡ ${anime.title}</blockquote>
+  const adultBadge = anime.adultContent ? " 🔞" : "";
+  
+  return `<b><blockquote>⬡ ${anime.title}${adultBadge}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
+‣ Japanese : ${anime.japanese_title || "-"}
 ‣ Episode : ${episodeNum}
 ‣ Quality : ${quality}
 ‣ Audio : ${audioLabel}
@@ -75,14 +79,14 @@ async function sendEpisodeMessage(chatId, anime, audioType) {
 }
 
 // =======================
-// Send latest episode(s) - Sub AND/OR Dub
+// Send latest episode(s) - 18+ allowed
 // =======================
 async function sendLatest(chatId) {
   const episodes = await fetchLatestEpisodes();
   if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
 
-  const anime = episodes.find(ep => !ep.adultContent);
-  if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
+  // ✅ First episode (adult content allowed)
+  const anime = episodes[0];
 
   const hasSub = anime.tvInfo?.sub && anime.tvInfo.sub !== "";
   const hasDub = anime.tvInfo?.dub && anime.tvInfo.dub !== "";
@@ -92,7 +96,7 @@ async function sendLatest(chatId) {
   }
 
   if (hasDub) {
-    await new Promise(resolve => setTimeout(resolve, 800)); // Avoid rate limit
+    await new Promise(resolve => setTimeout(resolve, 800));
     await sendEpisodeMessage(chatId, anime, "dub");
   }
 
@@ -148,13 +152,25 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).send("Method not allowed");
 
   const update = req.body;
+  const chatId = update.message?.chat.id;
+  const text = update.message?.text;
+  const userId = update.message?.from?.id;
+  const isAdmin = ADMIN_IDS.includes(userId);
 
-  if (update.message?.text === "/latest") {
-    await sendLatest(update.message.chat.id);
+  if (text === "/latest") {
+    await sendLatest(chatId);
   }
 
-  if (update.message?.text === "/schedule") {
-    await sendSchedule(update.message.chat.id);
+  // Optional: Admin-only 18+ override (if you want filtering by default)
+  if (text === "/latest18+") {
+    if (!isAdmin) {
+      return bot.sendMessage(chatId, "🔐 Admins only.");
+    }
+    await sendLatest(chatId);
+  }
+
+  if (text === "/schedule") {
+    await sendSchedule(chatId);
   }
 
   return res.status(200).json({ ok: true });
