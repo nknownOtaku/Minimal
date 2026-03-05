@@ -11,31 +11,27 @@ const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
 const BANNER_API = "https://banner-gene.onrender.com/api/create";
 
 // =======================
-// Fetch the latest anime
+// Fetch the latest episodes
 // =======================
-async function fetchLatestAnime() {
+async function fetchLatestEpisodes() {
   try {
     const res = await axios.get(API_URL);
-    const spotlights = res.data?.results?.spotlights || [];
-    return spotlights[0]; // first latest
+    return res.data?.latestEpisode || [];
   } catch (err) {
     console.error("❌ API fetch error:", err.message);
-    return null;
+    return [];
   }
 }
 
 // =======================
 // Build caption
 // =======================
-function buildCaption(anime, type) {
-  const epNo = anime.tvInfo?.episodeInfo?.[type] || "N/A";
-  const audio = type === "dub" ? "English Dub" : "Japanese [Eng Sub]";
+function buildCaption(anime) {
   return `<b><blockquote>⬡ ${anime.title}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
-‣ Japanese : ${anime.japanese_title || "-"}
-‣ Episode : ${epNo}
+‣ Episode : ${anime.tvInfo?.sub || "-"}
 ‣ Quality : ${anime.tvInfo?.quality || "HD"}
-‣ Audio : ${audio}
+‣ Type : ${anime.tvInfo?.showType || "TV/ONA"}
 ╰━━━━━━━━━━━━━━━━━━━━━
 <blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote></b>`;
 }
@@ -44,15 +40,14 @@ function buildCaption(anime, type) {
 // Send latest to user
 // =======================
 async function sendLatest(chatId) {
-  const anime = await fetchLatestAnime();
-  if (!anime) return bot.sendMessage(chatId, "❌ Failed to fetch latest anime.");
+  const episodes = await fetchLatestEpisodes();
+  if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
 
-  const types = [];
-  if (anime.tvInfo?.episodeInfo?.sub) types.push("sub");
-  if (anime.tvInfo?.episodeInfo?.dub) types.push("dub");
+  for (const anime of episodes) {
+    // Skip adult content
+    if (anime.adultContent) continue;
 
-  for (const type of types) {
-    const caption = buildCaption(anime, type);
+    const caption = buildCaption(anime);
     const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
 
     await bot.sendPhoto(chatId, bannerUrl, {
@@ -64,7 +59,7 @@ async function sendLatest(chatId) {
             {
               text: "🎬 Watch Now",
               web_app: {
-                url: `${WEBAPP_URL}/?stream=${anime.id}&type=${type}`
+                url: `${WEBAPP_URL}/?stream=${anime.id}`
               }
             }
           ]
