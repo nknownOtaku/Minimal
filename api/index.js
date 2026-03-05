@@ -14,7 +14,7 @@ const API_URL = process.env.API_URL || "https://anime-api-seven-wheat.vercel.app
 const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
 const BANNER_API = "https://banner-gene.onrender.com/api/create";
 const SCHEDULE_IMAGE = "https://i.ibb.co/JW58ghkb/x.jpg";
-const ADMIN_IDS = process.env.ADMIN_IDS?.split(",").map(id => parseInt(id)) || [];
+const ADMIN_IDS = process.env.ADMIN_IDS?.split(",").map(id => parseInt(id.trim())) || [];
 
 // =======================
 // Fetch latest episodes
@@ -27,6 +27,29 @@ async function fetchLatestEpisodes() {
     console.error("❌ API fetch error:", err.message);
     return [];
   }
+}
+
+// =======================
+// Fetch episodes list for an anime
+// =======================
+async function fetchEpisodesList(animeId) {
+  try {
+    const res = await axios.get(`${API_URL}/episodes/${animeId}`);
+    return res.data?.results?.episodes || [];
+  } catch (err) {
+    console.error(`❌ Episodes fetch error for ${animeId}:`, err.message);
+    return [];
+  }
+}
+
+// =======================
+// Get latest episode object by episode number
+// =======================
+function getLatestEpisode(episodes) {
+  if (!episodes?.length) return null;
+  return episodes.reduce((max, ep) => 
+    (ep.episode_no > max.episode_no) ? ep : max
+  );
 }
 
 // =======================
@@ -60,7 +83,17 @@ function buildCaption(anime, audioType = "sub") {
 async function sendEpisodeMessage(chatId, anime, audioType) {
   const caption = buildCaption(anime, audioType);
   const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
-  const streamUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}`;
+  
+  // ✅ Fetch episodes list to get the FULL episode ID (with ?ep=xxx)
+  const episodeList = await fetchEpisodesList(anime.id);
+  const latestEp = getLatestEpisode(episodeList);
+  
+  // ✅ Use the FULL episode ID as the stream param
+  // Example: "anime-id?ep=167848"
+  const episodeId = latestEp?.id || `${anime.id}?ep=1`;
+  
+  // ✅ Build WebApp URL: stream param contains the full episode ID (URL-encoded)
+  const webAppUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(episodeId)}`;
 
   await bot.sendPhoto(chatId, bannerUrl, {
     caption,
@@ -70,7 +103,7 @@ async function sendEpisodeMessage(chatId, anime, audioType) {
         [
           {
             text: audioType === "sub" ? "🎬 Watch Sub" : "🎬 Watch Dub",
-            web_app: { url: streamUrl }
+            web_app: { url: webAppUrl }
           }
         ]
       ]
@@ -79,13 +112,13 @@ async function sendEpisodeMessage(chatId, anime, audioType) {
 }
 
 // =======================
-// Send latest episode(s) - 18+ allowed
+// Send latest episode(s) - Sub AND/OR Dub (18+ allowed)
 // =======================
 async function sendLatest(chatId) {
   const episodes = await fetchLatestEpisodes();
   if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
 
-  // ✅ First episode (adult content allowed)
+  // ✅ Pick first episode (adult content allowed)
   const anime = episodes[0];
 
   const hasSub = anime.tvInfo?.sub && anime.tvInfo.sub !== "";
@@ -96,10 +129,12 @@ async function sendLatest(chatId) {
   }
 
   if (hasDub) {
+    // Small delay to avoid Telegram rate limits
     await new Promise(resolve => setTimeout(resolve, 800));
     await sendEpisodeMessage(chatId, anime, "dub");
   }
 
+  // Fallback if neither sub nor dub exists
   if (!hasSub && !hasDub) {
     await sendEpisodeMessage(chatId, anime, "sub");
   }
@@ -119,7 +154,7 @@ async function fetchTodaySchedule() {
 }
 
 // =======================
-// Build schedule caption
+// Build schedule caption (Time + Name + EP)
 // =======================
 function buildScheduleCaption(schedule) {
   if (!schedule.length) return "❌ No episodes scheduled for today.";
@@ -146,32 +181,69 @@ async function sendSchedule(chatId) {
 }
 
 // =======================
-// Serverless handler
+// Serverless handler (Vercel)
 // =======================
 module.exports = async (req, res) => {
-  if (req.method !== "POST") return res.status(405).send("Method not allowed");
+  // Log incoming request for debugging
+  console.log("📩 Webhook received:", req.method, req.body?.message?.text);
 
-  const update = req.body;
-  const chatId = update.message?.chat.id;
-  const text = update.message?.text;
-  const userId = update.message?.from?.id;
-  const isAdmin = ADMIN_IDS.includes(userId);
-
-  if (text === "/latest") {
-    await sendLatest(chatId);
+  if (req.method !== "POST") {
+    console.log("❌ Method not allowed:", req.method);
+    return res.status(405).send("Method not allowed");
   }
 
-  // Optional: Admin-only 18+ override (if you want filtering by default)
-  if (text === "/latest18+") {
-    if (!isAdmin) {
-      return bot.sendMessage(chatId, "🔐 Admins only.");
+  try {
+    const update = req.body;
+    const chatId = update.message?.chat.id;
+    const text = update.message?.text;
+    const userId = update.message?.from?.id;
+    const isAdmin = ADMIN_IDS.includes(userId);
+
+    if (!chatId) {
+      console.log("⚠️ No chatId in update");
+      return res.status(200).json({ ok: true });
     }
-    await sendLatest(chatId);
-  }
 
-  if (text === "/schedule") {
-    await sendSchedule(chatId);
-  }
+    console.log(`👤 User ${chatId} sent: "${text}"`);
 
-  return res.status(200).json({ ok: true });
+    // ✅ Handle /latest command
+    if (text === "/latest") {
+      console.log("🎬 Processing /latest");
+      await sendLatest(chatId);
+    }
+
+    // ✅ Optional: Admin-only 18+ override (if you want filtering by default)
+    if (text === "/latest18+") {
+      if (!isAdmin) {
+        return bot.sendMessage(chatId, "🔐 Admins only.");
+      }
+      console.log("🔞 Processing /latest18+ (admin)");
+      await sendLatest(chatId);
+    }
+
+    // ✅ Handle /schedule command
+    if (text === "/schedule" || text === "/today") {
+      console.log("📅 Processing /schedule");
+      await sendSchedule(chatId);
+    }
+
+    // ✅ Optional: Help command
+    if (text === "/start" || text === "/help") {
+      await bot.sendMessage(chatId, 
+        "🎬 <b>Otaku Syndicate Bot</b>\n\n" +
+        "Available commands:\n" +
+        "• /latest — Get latest episode(s)\n" +
+        "• /schedule — Today's airing schedule\n" +
+        "• /latest18+ — Include adult content (admins only)\n\n" +
+        "<blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote>",
+        { parse_mode: "HTML" }
+      );
+    }
+
+    return res.status(200).json({ ok: true });
+    
+  } catch (err) {
+    console.error("💥 Handler error:", err.message, err.stack);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
 };
