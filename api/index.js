@@ -83,6 +83,10 @@ function buildCaption(anime, audioType = "sub") {
 async function sendEpisodeMessage(chatId, anime, audioType) {
   const caption = buildCaption(anime, audioType);
   const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
+  const banner = await axios.get(bannerUrl, {
+    responseType: "arraybuffer"
+  });
+
   
   // ✅ Fetch episodes list to get the FULL episode ID (with ?ep=xxx)
   const episodeList = await fetchEpisodesList(anime.id);
@@ -95,7 +99,7 @@ async function sendEpisodeMessage(chatId, anime, audioType) {
   // ✅ Build WebApp URL: stream param contains the full episode ID (URL-encoded)
   const webAppUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(episodeId)}`;
 
-  await bot.sendPhoto(chatId, bannerUrl, {
+  await bot.sendPhoto(chatId, Buffer.from(banner.data), {
     caption,
     parse_mode: "HTML",
     reply_markup: {
