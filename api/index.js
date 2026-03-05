@@ -43,7 +43,6 @@ function buildCaption(anime, audioType = "sub") {
   
   return `<b><blockquote>⬡ ${anime.title}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
-‣ Japanese : ${anime.japanese_title || "-"}
 ‣ Episode : ${episodeNum}
 ‣ Quality : ${quality}
 ‣ Audio : ${audioLabel}
