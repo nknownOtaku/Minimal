@@ -29,35 +29,35 @@ async function fetchLatestEpisodes() {
 }
 
 // =======================
-// Build caption for latest
+// Build caption with audio type
 // =======================
-function buildCaption(anime) {
-  const episodeNum = anime.tvInfo?.sub || anime.tvInfo?.dub || "-";
+function buildCaption(anime, audioType = "sub") {
+  const episodeNum = audioType === "sub" 
+    ? anime.tvInfo?.sub || "-" 
+    : anime.tvInfo?.dub || "-";
+    
   const quality = anime.tvInfo?.quality || "HD";
-  const showType = anime.tvInfo?.showType || "TV/ONA";
+  const audioLabel = audioType === "sub" 
+    ? "Japanese [Eng Sub]" 
+    : "English Dub";
   
   return `<b><blockquote>⬡ ${anime.title}</blockquote>
 ╭━━━━━━━━━━━━━━━━━━━━━
+‣ Japanese : ${anime.japanese_title || "-"}
 ‣ Episode : ${episodeNum}
 ‣ Quality : ${quality}
-‣ Type : ${showType}
+‣ Audio : ${audioLabel}
 ╰━━━━━━━━━━━━━━━━━━━━━
 <blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote></b>`;
 }
 
 // =======================
-// Send latest episode
+// Helper: Send single episode message
 // =======================
-async function sendLatest(chatId) {
-  const episodes = await fetchLatestEpisodes();
-  if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
-
-  // Pick the first non-adult episode
-  const anime = episodes.find(ep => !ep.adultContent);
-  if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
-
-  const caption = buildCaption(anime);
+async function sendEpisodeMessage(chatId, anime, audioType) {
+  const caption = buildCaption(anime, audioType);
   const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
+  const streamUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}`;
 
   await bot.sendPhoto(chatId, bannerUrl, {
     caption,
@@ -66,13 +66,40 @@ async function sendLatest(chatId) {
       inline_keyboard: [
         [
           {
-            text: "🎬 Watch Now",
-            web_app: { url: `${WEBAPP_URL}/?stream=${anime.id}` }
+            text: audioType === "sub" ? "🎬 Watch Sub" : "🎬 Watch Dub",
+            web_app: { url: streamUrl }
           }
         ]
       ]
     }
   });
+}
+
+// =======================
+// Send latest episode(s) - Sub AND/OR Dub
+// =======================
+async function sendLatest(chatId) {
+  const episodes = await fetchLatestEpisodes();
+  if (!episodes.length) return bot.sendMessage(chatId, "❌ No latest episodes found.");
+
+  const anime = episodes.find(ep => !ep.adultContent);
+  if (!anime) return bot.sendMessage(chatId, "❌ No suitable episodes found (all filtered).");
+
+  const hasSub = anime.tvInfo?.sub && anime.tvInfo.sub !== "";
+  const hasDub = anime.tvInfo?.dub && anime.tvInfo.dub !== "";
+
+  if (hasSub) {
+    await sendEpisodeMessage(chatId, anime, "sub");
+  }
+
+  if (hasDub) {
+    await new Promise(resolve => setTimeout(resolve, 800)); // Avoid rate limit
+    await sendEpisodeMessage(chatId, anime, "dub");
+  }
+
+  if (!hasSub && !hasDub) {
+    await sendEpisodeMessage(chatId, anime, "sub");
+  }
 }
 
 // =======================
@@ -99,7 +126,7 @@ function buildScheduleCaption(schedule) {
       const ep = item.episode_no ? `(Ep. ${item.episode_no})` : "(New)";
       return `<b><blockquote>⬡ ${item.title} ${ep}</blockquote></b>\n‣ Time: ${item.time}`;
     })
-    .join("\n\n"); // separate each item with a blank line
+    .join("\n\n");
 }
 
 // =======================
