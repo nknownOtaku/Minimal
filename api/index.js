@@ -14,7 +14,9 @@ const API_URL = process.env.API_URL || "https://anime-api-seven-wheat.vercel.app
 const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
 const BANNER_API = "https://banner-gene.onrender.com/api/create";
 const SCHEDULE_IMAGE = "https://i.ibb.co/JW58ghkb/x.jpg";
-
+const banner = await axios.get(bannerUrl, {
+  responseType: "arraybuffer"
+});
 // =======================
 // Fetch latest episodes
 // =======================
@@ -59,20 +61,27 @@ async function sendEpisodeMessage(chatId, anime, audioType) {
   const bannerUrl = `${BANNER_API}?title=${anime.title}`;
   const streamUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}`;
 
-  await bot.sendPhoto(chatId, bannerUrl, {
-    caption,
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [
-        [
-          {
-            text: audioType === "sub" ? "🎬 Watch Sub" : "🎬 Watch Dub",
-            web_app: { url: streamUrl }
-          }
+  await bot.sendPhoto(
+    chatId,
+    {
+      source: Buffer.from(banner.data),
+      filename: "banner.png"
+    },
+    {
+      caption,
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: audioType === "sub" ? "🎬 Watch Sub" : "🎬 Watch Dub",
+              web_app: { url: webAppUrl }
+            }
+          ]
         ]
-      ]
+      }
     }
-  });
+  );
 }
 
 // =======================
