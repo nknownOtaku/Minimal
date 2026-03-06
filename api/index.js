@@ -8,15 +8,15 @@ const axios = require("axios");
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
 
 // =======================
-// Config
+// Config (✅ Trimmed trailing spaces!)
 // =======================
-const API_URL = process.env.API_URL || "https://anime-api-seven-wheat.vercel.app/api";
-const WEBAPP_URL = process.env.WEBAPP_URL || "https://your-webapp.com";
-const BANNER_API = "https://banner-gene.onrender.com/api/create";
-const SCHEDULE_IMAGE = "https://i.ibb.co/JW58ghkb/x.jpg";
-const banner = await axios.get(bannerUrl, {
-  responseType: "arraybuffer"
-});
+const API_URL = (process.env.API_URL || "https://anime-api-seven-wheat.vercel.app/api").trim();
+const WEBAPP_URL = (process.env.WEBAPP_URL || "https://your-webapp.com").trim();
+const BANNER_API = "https://banner-gene.onrender.com/api/create".trim();
+const SCHEDULE_IMAGE = "https://i.ibb.co/JW58ghkb/x.jpg".trim();
+
+// ✅ REMOVED the broken top-level await code
+
 // =======================
 // Fetch latest episodes
 // =======================
@@ -43,45 +43,70 @@ function buildCaption(anime, audioType = "sub") {
     ? "Japanese [Eng Sub]" 
     : "English Dub";
   
-  return `<b><blockquote>⬡ ${anime.title}</blockquote>
-╭━━━━━━━━━━━━━━━━━━━━━
+  // ✅ Replaced unsupported <blockquote> with simple formatting
+  return `<b>⬡ ${anime.title}
+━━━━━━━━━━━━━━━━━━━━━
 ‣ Japanese : ${anime.japanese_title || "-"}
 ‣ Episode : ${episodeNum}
 ‣ Quality : ${quality}
 ‣ Audio : ${audioLabel}
-╰━━━━━━━━━━━━━━━━━━━━━
-<blockquote>⬡ Powered By : @Otaku_Syndicate</blockquote></b>`;
+━━━━━━━━━━━━━━━━━━━━━
+⬡ Powered By : @Otaku_Syndicate</b>`;
 }
 
 // =======================
 // Helper: Send single episode message
 // =======================
 async function sendEpisodeMessage(chatId, anime, audioType) {
-  const caption = buildCaption(anime, audioType);
-  const bannerUrl = `${BANNER_API}?title=${anime.title}`;
-  const streamUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}`;
+  try {
+    const caption = buildCaption(anime, audioType);
+    const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
+    const streamUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}`;
 
-  await bot.sendPhoto(
-    chatId,
-    {
-      source: Buffer.from(banner.data),
-      filename: "banner.png"
-    },
-    {
-      caption,
+    // ✅ Fetch banner dynamically per message (inside async function)
+    const bannerRes = await axios.get(bannerUrl, {
+      responseType: "arraybuffer",
+      timeout: 10000 // 10s timeout
+    });
+
+    await bot.sendPhoto(
+      chatId,
+      {
+        source: Buffer.from(bannerRes.data),
+        filename: "banner.png"
+      },
+      {
+        caption,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: audioType === "sub" ? "🎬 Watch Sub" : "🎬 Watch Dub",
+                web_app: { url: streamUrl } // ✅ Fixed: was 'webAppUrl'
+              }
+            ]
+          ]
+        }
+      }
+    );
+  } catch (err) {
+    console.error("❌ sendEpisodeMessage error:", err.message);
+    // ✅ Fallback: send text-only if image fails
+    await bot.sendMessage(chatId, `⚠️ Failed to load banner for ${anime.title}\n\n${buildCaption(anime, audioType)}`, {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
           [
             {
               text: audioType === "sub" ? "🎬 Watch Sub" : "🎬 Watch Dub",
-              web_app: { url: webAppUrl }
+              web_app: { url: `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}` }
             }
           ]
         ]
       }
-    }
-  );
+    });
+  }
 }
 
 // =======================
@@ -133,7 +158,8 @@ function buildScheduleCaption(schedule) {
   return schedule
     .map(item => {
       const ep = item.episode_no ? `(Ep. ${item.episode_no})` : "(New)";
-      return `<b><blockquote>⬡ ${item.title} ${ep}</blockquote></b>\n‣ Time: ${item.time}`;
+      // ✅ Replaced <blockquote> with simple formatting
+      return `<b>⬡ ${item.title} ${ep}</b>\n‣ Time: ${item.time}`;
     })
     .join("\n\n");
 }
@@ -152,7 +178,7 @@ async function sendSchedule(chatId) {
 }
 
 // =======================
-// Serverless handler
+// Serverless handler (Vercel)
 // =======================
 module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).send("Method not allowed");
