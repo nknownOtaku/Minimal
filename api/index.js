@@ -56,7 +56,7 @@ function buildCaption(anime, audioType = "sub") {
 // =======================
 async function sendEpisodeMessage(chatId, anime, audioType) {
   const caption = buildCaption(anime, audioType);
-  const bannerUrl = `${BANNER_API}?title=${encodeURIComponent(anime.title)}`;
+  const bannerUrl = `${BANNER_API}?title=${anime.title}`;
   const streamUrl = `${WEBAPP_URL}/?stream=${encodeURIComponent(anime.id)}&audio=${audioType}`;
 
   await bot.sendPhoto(chatId, bannerUrl, {
